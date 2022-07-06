@@ -25,16 +25,18 @@ CONFIG_QCA_CLD_WLAN_PROFILE ?= $(WLAN_PROFILE)
 DEVNAME ?= wlan
 WLAN_PLATFORM_INC ?= $(WLAN_ROOT)/../platform/inc
 
-ifeq ($(KERNEL_BUILD), n)
-ifneq ($(ANDROID_BUILD_TOP),)
-      ANDROID_BUILD_TOP_REL := $(shell python -c "import os.path; print(os.path.relpath('$(ANDROID_BUILD_TOP)'))")
-      override WLAN_ROOT := $(ANDROID_BUILD_TOP_REL)/$(WLAN_ROOT)
-      override WLAN_COMMON_INC := $(ANDROID_BUILD_TOP_REL)/$(WLAN_COMMON_INC)
-      override WLAN_FW_API := $(ANDROID_BUILD_TOP_REL)/$(WLAN_FW_API)
-endif
-endif
+#ifeq ($(KERNEL_BUILD), n)
+#ifneq ($(ANDROID_BUILD_TOP),)
+#      ANDROID_BUILD_TOP_REL := $(shell python -c "import os.path; print(os.path.relpath('$(ANDROID_BUILD_TOP)'))")
+#      override WLAN_ROOT := $(ANDROID_BUILD_TOP_REL)/$(WLAN_ROOT)
+#      override WLAN_COMMON_INC := $(ANDROID_BUILD_TOP_REL)/$(WLAN_COMMON_INC)
+#      override WLAN_FW_API := $(ANDROID_BUILD_TOP_REL)/$(WLAN_FW_API)
+#endif
+#endif
 
 include $(WLAN_ROOT)/configs/$(CONFIG_QCA_CLD_WLAN_PROFILE)_defconfig
+
+cppflags-y += -DCONFIG_IPA_WDI_UNIFIED_API
 
 # add configurations in WLAN_CFG_OVERRIDE
 $(foreach cfg, $(WLAN_CFG_OVERRIDE), \
