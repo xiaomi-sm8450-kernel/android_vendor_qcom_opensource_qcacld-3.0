@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -62,6 +63,8 @@ static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 		cfg_get(psoc, CFG_FORCE_1X1_FEATURE);
 	cfg->sta_sap_scc_on_dfs_chnl =
 		cfg_get(psoc, CFG_STA_SAP_SCC_ON_DFS_CHAN);
+	cfg->sap_only_allow_sta_dfs_indoor_chan =
+		cfg_get(psoc, CFG_SAP_ONLY_ALLOW_STA_DFS_INDOOR_CHAN);
 
 	/*
 	 * Force set sta_sap_scc_on_dfs_chnl on Non-DBS HW so that standalone

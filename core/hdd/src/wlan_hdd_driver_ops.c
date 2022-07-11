@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -688,6 +689,8 @@ static int hdd_soc_probe(struct device *dev,
 	int errno;
 
 	hdd_info("probing driver");
+
+	printk(KERN_ERR "probing wlan driver");
 
 	errno = osif_psoc_sync_create_and_trans(&psoc_sync);
 	if (errno)
@@ -1754,6 +1757,7 @@ static int wlan_hdd_pld_probe(struct device *dev,
 {
 	enum qdf_bus_type bus_type = to_bus_type(pld_bus_type);
 
+	hdd_err("wlan_hdd_pld_probe");
 	if (bus_type == QDF_BUS_TYPE_NONE) {
 		hdd_err("Invalid bus type %d->%d", pld_bus_type, bus_type);
 		return -EINVAL;

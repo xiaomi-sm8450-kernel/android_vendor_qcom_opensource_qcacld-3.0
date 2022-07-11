@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2017, 2019-2020 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -33,7 +34,7 @@ second_connection_pcl_nodbs_table[PM_MAX_ONE_CONNECTION_MODE]
 	[PM_STA_MODE] = {PM_5G, PM_SCC_CH, PM_SCC_CH},
 	[PM_SAP_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH_5G},
 	[PM_P2P_CLIENT_MODE] = {PM_SCC_CH, PM_SCC_CH, PM_SCC_CH_5G},
-	[PM_P2P_GO_MODE] = {PM_5G, PM_SCC_CH, PM_SCC_CH_5G},
+	[PM_P2P_GO_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH_5G},
 	[PM_NAN_DISC_MODE] = {PM_NONE, PM_NONE, PM_NONE},
 	[PM_NDI_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE} },
 
@@ -41,7 +42,7 @@ second_connection_pcl_nodbs_table[PM_MAX_ONE_CONNECTION_MODE]
 	[PM_STA_MODE] = {PM_5G, PM_SCC_CH, PM_SCC_CH},
 	[PM_SAP_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH_5G},
 	[PM_P2P_CLIENT_MODE] = {PM_SCC_CH, PM_SCC_CH, PM_SCC_CH_5G},
-	[PM_P2P_GO_MODE] = {PM_5G, PM_SCC_CH, PM_SCC_CH_5G},
+	[PM_P2P_GO_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH_5G},
 	[PM_NAN_DISC_MODE] = {PM_NONE, PM_NONE, PM_NONE},
 	[PM_NDI_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE} },
 
@@ -49,7 +50,7 @@ second_connection_pcl_nodbs_table[PM_MAX_ONE_CONNECTION_MODE]
 	[PM_STA_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH_5G},
 	[PM_SAP_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH},
 	[PM_P2P_CLIENT_MODE] = {PM_SCC_CH, PM_SCC_CH, PM_SCC_CH},
-	[PM_P2P_GO_MODE] = {PM_SCC_CH, PM_SCC_CH, PM_SCC_CH},
+	[PM_P2P_GO_MODE] = {PM_SCC_CH_24G, PM_SCC_CH, PM_SCC_CH},
 	[PM_NAN_DISC_MODE] = {PM_NONE, PM_NONE, PM_NONE},
 	[PM_NDI_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE} },
 
@@ -57,7 +58,7 @@ second_connection_pcl_nodbs_table[PM_MAX_ONE_CONNECTION_MODE]
 	[PM_STA_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH_5G},
 	[PM_SAP_MODE] = {PM_SCC_CH_5G, PM_SCC_CH, PM_SCC_CH},
 	[PM_P2P_CLIENT_MODE] = {PM_SCC_CH, PM_SCC_CH, PM_SCC_CH},
-	[PM_P2P_GO_MODE] = {PM_SCC_CH, PM_SCC_CH, PM_SCC_CH},
+	[PM_P2P_GO_MODE] = {PM_SCC_CH_24G, PM_SCC_CH, PM_SCC_CH},
 	[PM_NAN_DISC_MODE] = {PM_NONE, PM_NONE, PM_NONE},
 	[PM_NDI_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE} },
 

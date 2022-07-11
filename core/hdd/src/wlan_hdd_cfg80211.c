@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -177,6 +178,10 @@
 #include "wlan_hdd_mdns_offload.h"
 #include "wlan_pkt_capture_ucfg_api.h"
 #include "os_if_pkt_capture.h"
+
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+#include "wlan_hdd_dynamic_nss.h"
+#endif
 
 #define g_mode_rates_size (12)
 #define a_mode_rates_size (8)
@@ -7308,6 +7313,9 @@ const struct nla_policy wlan_hdd_wifi_config_policy[
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_RSN_IE] = {.type = NLA_U8},
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_GTX] = {.type = NLA_U8},
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_ELNA_BYPASS] = {.type = NLA_U8},
+	[QCA_WLAN_VENDOR_ATTR_CONFIG_DYNAMIC_NSS_SWITCH] = {.type = NLA_U8},
+	[QCA_WLAN_VENDOR_ATTR_CONFIG_BT_ACTIVE] = {.type = NLA_U8},
+	[QCA_WLAN_VENDOR_ATTR_CONFIG_SET_NSS_ANT] = {.type = NLA_U8},
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_ACCESS_POLICY] = {.type = NLA_U32 },
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_ACCESS_POLICY_IE_LIST] = {
 		.type = NLA_BINARY,
@@ -9388,6 +9396,43 @@ static int hdd_set_arp_ns_offload(struct hdd_adapter *adapter,
 #undef DYNAMIC_ARP_NS_DISABLE
 #endif
 
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+static int hdd_config_enable_dynamic_nss(struct hdd_adapter *adapter,
+			       const struct nlattr *attr)
+{
+	bool enable = nla_get_u8(attr);
+	wlan_hdd_config_enable_dynamic_nss(enable);
+
+	return 0;
+}
+
+static int hdd_config_set_bt_active(struct hdd_adapter *adapter,
+			       const struct nlattr *attr)
+{
+	bool active = nla_get_u8(attr);
+	wlan_hdd_config_set_bt_active(active);
+
+	return 0;
+}
+#endif
+
+/**
+ * hdd_config_set_nss_and_antenna_mode() - set the number of spatial streams supported by the adapter
+ * and set responding antenna mode.
+ *
+ * @adapter: hdd adapter
+ * @attr: pointer to nla attr
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+static int hdd_config_set_nss_and_antenna_mode(struct hdd_adapter *adapter,
+			       const struct nlattr *attr)
+{
+	uint8_t nss;
+	nss = nla_get_u8(attr);
+	return wlan_hdd_set_nss_and_antenna_mode(adapter, nss, nss);
+}
+
 /**
  * typedef independent_setter_fn - independent attribute handler
  * @adapter: The adapter being configured
@@ -9506,6 +9551,14 @@ static const struct independent_setters independent_setters[] = {
 	{QCA_WLAN_VENDOR_ATTR_CONFIG_ARP_NS_OFFLOAD,
 	 hdd_set_arp_ns_offload},
 #endif
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+	{QCA_WLAN_VENDOR_ATTR_CONFIG_DYNAMIC_NSS_SWITCH,
+	 hdd_config_enable_dynamic_nss},
+	{QCA_WLAN_VENDOR_ATTR_CONFIG_BT_ACTIVE,
+	 hdd_config_set_bt_active},
+#endif
+	{QCA_WLAN_VENDOR_ATTR_CONFIG_SET_NSS_ANT,
+	 hdd_config_set_nss_and_antenna_mode},
 };
 
 #ifdef WLAN_FEATURE_ELNA
@@ -20239,12 +20292,18 @@ static int wlan_hdd_cfg80211_disconnect(struct wiphy *wiphy,
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
+	struct hdd_adapter *adapter;
 
 	errno = osif_vdev_sync_op_start(dev, &vdev_sync);
 	if (errno)
 		return errno;
 
 	errno = wlan_hdd_cm_disconnect(wiphy, dev, reason);
+
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+        adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+	wlan_hdd_stop_dynamic_nss(adapter);
+#endif
 
 	osif_vdev_sync_op_stop(vdev_sync);
 

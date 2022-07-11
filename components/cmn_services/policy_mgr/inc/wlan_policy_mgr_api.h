@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3571,6 +3572,17 @@ bool policy_mgr_is_sap_allowed_on_dfs_freq(struct wlan_objmgr_pdev *pdev,
  * Return: true if sta+sap scc is allowed on dfs channel, otherwise false
  */
 bool policy_mgr_is_sta_sap_scc_allowed_on_dfs_chan(
+		struct wlan_objmgr_psoc *psoc);
+
+/**
+ * policy_mgr_is_sap_only_allow_sta_dfs_indoor_chan() - check if disallow
+ * sap to work on dfs/indoor chan outside mac working freq
+ * @psoc: pointer to soc
+ * check if disallow sap to work on dfs/indoor chan outside mac working freq
+ *
+ * Return: true if disallowsap to work on dfs/indoor chan outside mac working freq
+ */
+bool policy_mgr_is_sap_only_allow_sta_dfs_indoor_chan(
 		struct wlan_objmgr_psoc *psoc);
 
 /**
