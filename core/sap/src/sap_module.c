@@ -749,6 +749,7 @@ QDF_STATUS wlansap_start_bss(struct sap_context *sap_ctx,
 	sap_ctx->isCacEndNotified = false;
 	sap_ctx->is_chan_change_inprogress = false;
 	sap_ctx->phyMode = config->SapHw_mode;
+	sap_ctx->csa_reason = CSA_REASON_UNKNOWN;
 
 	/* Set the BSSID to your "self MAC Addr" read the mac address
 		from Configuation ITEM received from HDD */
@@ -1210,6 +1211,21 @@ wlansap_get_target_eht_phy_ch_width(void)
 }
 #endif /* WLAN_FEATURE_11BE */
 
+static enum phy_ch_width
+wlansap_5g_orig_bw_validate(
+	struct sap_context *sap_context,
+	uint32_t chan_freq,
+	enum phy_ch_width ch_width)
+{
+	if (sap_context->csa_reason != CSA_REASON_USER_INITIATED &&
+	    WLAN_REG_IS_5GHZ_CH_FREQ(chan_freq) &&
+	    ch_width >= CH_WIDTH_160MHZ &&
+	    sap_context->ch_width_orig < CH_WIDTH_160MHZ)
+		ch_width = CH_WIDTH_80MHZ;
+
+	return ch_width;
+}
+
 enum phy_ch_width
 wlansap_get_csa_chanwidth_from_phymode(struct sap_context *sap_context,
 				       uint32_t chan_freq,
@@ -1234,6 +1250,8 @@ wlansap_get_csa_chanwidth_from_phymode(struct sap_context *sap_context,
 		ch_width = CH_WIDTH_20MHZ;
 	} else {
 		ch_width = wlansap_get_max_bw_by_phymode(sap_context);
+		ch_width = wlansap_5g_orig_bw_validate(
+				sap_context, chan_freq, ch_width);
 		concurrent_bw = wlan_sap_get_concurrent_bw(
 				mac->pdev, mac->psoc, chan_freq,
 				ch_width);
@@ -1247,11 +1265,12 @@ wlansap_get_csa_chanwidth_from_phymode(struct sap_context *sap_context,
 	ch_width = ch_params.ch_width;
 	if (tgt_ch_params)
 		*tgt_ch_params = ch_params;
-	sap_nofl_debug("freq %d bw %d (phymode %d, con bw %d, tgt bw %d)",
+	sap_nofl_debug("freq %d bw %d (phymode %d, con bw %d, tgt bw %d) reason %d",
 		       chan_freq, ch_width,
 		       sap_context->phyMode,
 		       concurrent_bw,
-		       tgt_ch_params ? tgt_ch_params->ch_width : CH_WIDTH_MAX);
+		       tgt_ch_params ? tgt_ch_params->ch_width : CH_WIDTH_MAX,
+		       sap_context->csa_reason);
 
 	return ch_width;
 }

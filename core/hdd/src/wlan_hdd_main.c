@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -211,9 +212,15 @@
 #include <linux/bitfield.h>
 #include "wlan_hdd_mlo.h"
 #include <wlan_hdd_son.h>
+
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+#include "wlan_hdd_dynamic_nss.h"
+#endif
+
 #ifdef WLAN_FEATURE_11BE_MLO
 #include <wlan_mlo_mgr_ap.h>
 #endif
+
 #ifdef MODULE
 #define WLAN_MODULE_NAME  module_name(THIS_MODULE)
 #else
@@ -4335,6 +4342,107 @@ static void hdd_set_fw_log_params(struct hdd_context *hdd_ctx, uint8_t vdev_id)
 
 #endif
 
+#if defined(WLAN_FEATURE_DP_BUS_BANDWIDTH) && defined(FEATURE_RUNTIME_PM)
+static void hdd_rtpm_tput_policy_init(struct hdd_context *hdd_ctx)
+{
+	struct hdd_rtpm_tput_policy_context *ctx;
+
+	ctx = &hdd_ctx->rtpm_tput_policy_ctx;
+	qdf_wake_lock_create(&ctx->wake_lock, "rtpm_tput_policy_lock");
+	qdf_runtime_lock_init(&ctx->rtpm_lock);
+	ctx->curr_state = RTPM_TPUT_POLICY_STATE_REQUIRED;
+	qdf_atomic_init(&ctx->high_tput_vote);
+}
+
+static void hdd_rtpm_tput_policy_deinit(struct hdd_context *hdd_ctx)
+{
+	struct hdd_rtpm_tput_policy_context *ctx;
+
+	ctx = &hdd_ctx->rtpm_tput_policy_ctx;
+	ctx->curr_state = RTPM_TPUT_POLICY_STATE_INVALID;
+	qdf_runtime_lock_deinit(&ctx->rtpm_lock);
+	qdf_wake_lock_destroy(&ctx->wake_lock);
+}
+
+static void hdd_rtpm_tput_policy_prevent(struct hdd_context *hdd_ctx)
+{
+	struct hdd_rtpm_tput_policy_context *ctx;
+
+	ctx = &hdd_ctx->rtpm_tput_policy_ctx;
+	qdf_wake_lock_acquire(&ctx->wake_lock,
+			      WIFI_POWER_EVENT_WAKELOCK_RTPM_TPUT_POLICY);
+	qdf_runtime_pm_prevent_suspend(&ctx->rtpm_lock);
+}
+
+static void hdd_rtpm_tput_policy_allow(struct hdd_context *hdd_ctx)
+{
+	struct hdd_rtpm_tput_policy_context *ctx;
+
+	ctx = &hdd_ctx->rtpm_tput_policy_ctx;
+	qdf_runtime_pm_allow_suspend(&ctx->rtpm_lock);
+	qdf_wake_lock_release(&ctx->wake_lock,
+			      WIFI_POWER_EVENT_WAKELOCK_RTPM_TPUT_POLICY);
+}
+
+#define HDD_RTPM_POLICY_HIGH_TPUT_THRESH TPUT_LEVEL_MEDIUM
+
+static void hdd_rtpm_tput_policy_apply(struct hdd_context *hdd_ctx,
+				       enum tput_level tput_level)
+{
+	int vote;
+	enum hdd_rtpm_tput_policy_state temp_state;
+	struct hdd_rtpm_tput_policy_context *ctx;
+	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
+
+	if (qdf_unlikely(!soc))
+		return;
+
+	ctx = &hdd_ctx->rtpm_tput_policy_ctx;
+
+	if (tput_level >= HDD_RTPM_POLICY_HIGH_TPUT_THRESH)
+		temp_state = RTPM_TPUT_POLICY_STATE_NOT_REQUIRED;
+	else
+		temp_state = RTPM_TPUT_POLICY_STATE_REQUIRED;
+
+	if (ctx->curr_state == temp_state)
+		return;
+
+	if (temp_state == RTPM_TPUT_POLICY_STATE_REQUIRED) {
+		cdp_set_rtpm_tput_policy_requirement(soc, false);
+		qdf_atomic_dec(&ctx->high_tput_vote);
+		hdd_rtpm_tput_policy_allow(hdd_ctx);
+	} else {
+		cdp_set_rtpm_tput_policy_requirement(soc, true);
+		qdf_atomic_inc(&ctx->high_tput_vote);
+		hdd_rtpm_tput_policy_prevent(hdd_ctx);
+	}
+
+	ctx->curr_state = temp_state;
+	vote = qdf_atomic_read(&ctx->high_tput_vote);
+
+	if (vote < 0 || vote > 1) {
+		hdd_alert_rl("Incorrect vote!");
+		QDF_BUG(0);
+	}
+}
+#else
+static inline
+void hdd_rtpm_tput_policy_init(struct hdd_context *hdd_ctx)
+{
+}
+
+static inline
+void hdd_rtpm_tput_policy_deinit(struct hdd_context *hdd_ctx)
+{
+}
+
+static inline
+void hdd_rtpm_tput_policy_apply(struct hdd_context *hdd_ctx,
+				enum tput_level tput_level)
+{
+}
+#endif
+
 int hdd_wlan_start_modules(struct hdd_context *hdd_ctx, bool reinit)
 {
 	int ret = 0;
@@ -4398,6 +4506,8 @@ int hdd_wlan_start_modules(struct hdd_context *hdd_ctx, bool reinit)
 			ret = -EINVAL;
 			goto power_down;
 		}
+
+		hdd_rtpm_tput_policy_init(hdd_ctx);
 
 		status = ol_cds_init(qdf_dev, hif_ctx);
 		if (status != QDF_STATUS_SUCCESS) {
@@ -4630,6 +4740,7 @@ cds_free:
 	ol_cds_free();
 
 hif_close:
+	hdd_rtpm_tput_policy_deinit(hdd_ctx);
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
 	hdd_hif_close(hdd_ctx, hif_ctx);
 power_down:
@@ -5696,14 +5807,14 @@ hdd_alloc_station_adapter(struct hdd_context *hdd_ctx, tSirMacAddr mac_addr,
 	uint8_t latency_level;
 
 	/* cfg80211 initialization and registration */
-	dev = alloc_netdev_mq(sizeof(*adapter), name,
+	dev = alloc_netdev_mqs(sizeof(*adapter), name,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)) || defined(WITH_BACKPORTS)
 			      name_assign_type,
 #endif
 			      ((cds_get_conparam() == QDF_GLOBAL_MONITOR_MODE ||
 			       wlan_hdd_is_session_type_monitor(session_type)) ?
 			       hdd_mon_mode_ether_setup : ether_setup),
-			      NUM_TX_QUEUES);
+			      NUM_TX_QUEUES, NUM_RX_QUEUES);
 
 	if (!dev) {
 		hdd_err("Failed to allocate new net_device '%s'", name);
@@ -7547,6 +7658,11 @@ QDF_STATUS hdd_stop_adapter_ext(struct hdd_context *hdd_ctx,
 	enum wlan_reason_code reason = REASON_IFACE_DOWN;
 
 	hdd_enter();
+
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+	wlan_hdd_tput_stats_timer_deinit(hdd_ctx);
+#endif
+
 	hdd_destroy_adapter_sysfs_files(adapter);
 
 	if (adapter->device_mode == QDF_STA_MODE &&
@@ -9178,6 +9294,7 @@ void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 
 	hdd_enter();
 
+	hdd_wait_for_dp_tx();
 	wlan_hdd_destroy_mib_stats_lock();
 	hdd_debugfs_ini_config_deinit(hdd_ctx);
 	hdd_debugfs_mws_coex_info_deinit(hdd_ctx);
@@ -9939,12 +10056,18 @@ static void hdd_pld_request_bus_bandwidth(struct hdd_context *hdd_ctx,
 	enum tput_level tput_level;
 	struct bbm_params param = {0};
 	bool legacy_client = false;
+	void *hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
+	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
+	static enum tput_level prev_tput_level = TPUT_LEVEL_NONE;
 
 	cpumask_clear(&pm_qos_cpu_mask);
 
 	if (hdd_ctx->high_bus_bw_request) {
 		next_vote_level = PLD_BUS_WIDTH_VERY_HIGH;
 		tput_level = TPUT_LEVEL_VERY_HIGH;
+	} else if (total_pkts > hdd_ctx->config->bus_bw_ultra_high_threshold) {
+		next_vote_level = PLD_BUS_WIDTH_ULTRA_HIGH;
+		tput_level = TPUT_LEVEL_ULTRA_HIGH;
 	} else if (total_pkts > hdd_ctx->config->bus_bw_very_high_threshold) {
 		next_vote_level = PLD_BUS_WIDTH_VERY_HIGH;
 		tput_level = TPUT_LEVEL_VERY_HIGH;
@@ -9962,9 +10085,27 @@ static void hdd_pld_request_bus_bandwidth(struct hdd_context *hdd_ctx,
 		tput_level = TPUT_LEVEL_IDLE;
 	}
 
+	/*
+	 * DBS mode requires more DDR/SNOC resources, vote to ultra high
+	 * only when TPUT can reach VHT80 KPI and IPA is disabled,
+	 * for other cases, follow general voting logic
+	 */
+	if (!ucfg_ipa_is_fw_wdi_activated(hdd_ctx->pdev) &&
+	    policy_mgr_is_current_hwmode_dbs(hdd_ctx->psoc)) {
+		if (total_pkts > hdd_ctx->config->bus_bw_ultra_high_threshold) {
+			next_vote_level = PLD_BUS_WIDTH_MAX;
+			tput_level = TPUT_LEVEL_SUPER_HIGH;
+		} else if (total_pkts > hdd_ctx->config->bus_bw_dbs_threshold) {
+			next_vote_level = PLD_BUS_WIDTH_ULTRA_HIGH;
+			tput_level = TPUT_LEVEL_ULTRA_HIGH;
+		}
+	}
+
 	param.policy = BBM_TPUT_POLICY;
 	param.policy_info.tput_level = tput_level;
 	hdd_bbm_apply_independent_policy(hdd_ctx, &param);
+
+	hdd_rtpm_tput_policy_apply(hdd_ctx, tput_level);
 
 	dptrace_high_tput_req =
 			next_vote_level > PLD_BUS_WIDTH_IDLE ? true : false;
@@ -9979,6 +10120,17 @@ static void hdd_pld_request_bus_bandwidth(struct hdd_context *hdd_ctx,
 		hdd_debug("tx_packets: %lld, rx_packets: %lld",
 			  tx_packets, rx_packets);
 
+		/* Set affinity for tx completion grp interrupts */
+		if (tput_level >= TPUT_LEVEL_VERY_HIGH &&
+		    prev_tput_level < TPUT_LEVEL_VERY_HIGH)
+			hif_set_grp_intr_affinity(hif_ctx,
+					cdp_get_tx_rings_grp_bitmap(soc), true);
+		else if (tput_level < TPUT_LEVEL_VERY_HIGH &&
+			 prev_tput_level >= TPUT_LEVEL_VERY_HIGH)
+			hif_set_grp_intr_affinity(hif_ctx,
+				       cdp_get_tx_rings_grp_bitmap(soc), false);
+
+		prev_tput_level = tput_level;
 		hdd_ctx->cur_vote_level = next_vote_level;
 		vote_level_change = true;
 
@@ -10270,7 +10422,9 @@ void hdd_send_mscs_action_frame(struct hdd_context *hdd_ctx,
 				struct hdd_adapter *adapter)
 {
 	uint64_t mscs_vo_pkt_delta;
-	unsigned long tx_vo_pkts;
+	unsigned long tx_vo_pkts = 0;
+	uint8_t cpu;
+	struct hdd_tx_rx_stats *stats = &adapter->hdd_stats.tx_rx_stats;
 
 	/*
 	 * To disable MSCS feature in driver set mscs_pkt_threshold = 0
@@ -10279,7 +10433,8 @@ void hdd_send_mscs_action_frame(struct hdd_context *hdd_ctx,
 	if (!hdd_ctx->config->mscs_pkt_threshold)
 		return;
 
-	tx_vo_pkts = adapter->hdd_stats.tx_rx_stats.tx_classified_ac[SME_AC_VO];
+	for (cpu = 0; cpu < NUM_CPUS; cpu++)
+		tx_vo_pkts += stats->per_cpu[cpu].tx_classified_ac[SME_AC_VO];
 
 	if (!adapter->mscs_counter)
 		adapter->mscs_prev_tx_vo_pkts = tx_vo_pkts;
@@ -10755,11 +10910,12 @@ void wlan_hdd_display_tx_rx_histogram(struct hdd_context *hdd_ctx)
 #ifdef WLAN_FEATURE_DP_BUS_BANDWIDTH
 	hdd_nofl_debug("BW compute Interval: %d ms",
 		       hdd_ctx->config->bus_bw_compute_interval);
-	hdd_nofl_debug("BW TH - Very High: %d High: %d Med: %d Low: %d",
+	hdd_nofl_debug("BW TH - Very High: %d High: %d Med: %d Low: %d DBS: %d",
 		       hdd_ctx->config->bus_bw_very_high_threshold,
 		       hdd_ctx->config->bus_bw_high_threshold,
 		       hdd_ctx->config->bus_bw_medium_threshold,
-		       hdd_ctx->config->bus_bw_low_threshold);
+		       hdd_ctx->config->bus_bw_low_threshold,
+		       hdd_ctx->config->bus_bw_dbs_threshold);
 	hdd_nofl_debug("Enable TCP DEL ACK: %d",
 		       hdd_ctx->en_tcp_delack_no_lro);
 	hdd_nofl_debug("TCP DEL High TH: %d TCP DEL Low TH: %d",
@@ -13923,10 +14079,6 @@ static int hdd_features_init(struct hdd_context *hdd_ctx)
 		wlan_cm_set_check_6ghz_security(hdd_ctx->psoc, true);
 		wlan_cm_set_6ghz_key_mgmt_mask(hdd_ctx->psoc,
 					       ALLOWED_KEYMGMT_6G_MASK);
-	} else {
-		wlan_cm_set_check_6ghz_security(hdd_ctx->psoc, false);
-		wlan_cm_set_6ghz_key_mgmt_mask(hdd_ctx->psoc,
-					       DEFAULT_KEYMGMT_6G_MASK);
 	}
 	hdd_thermal_stats_cmd_init(hdd_ctx);
 
@@ -14503,6 +14655,7 @@ int hdd_wlan_stop_modules(struct hdd_context *hdd_ctx, bool ftm_mode)
 	}
 
 	wlan_connectivity_logging_stop();
+	hdd_rtpm_tput_policy_deinit(hdd_ctx);
 
 	ucfg_ipa_component_config_free();
 	hdd_hif_close(hdd_ctx, hif_ctx);
@@ -17510,6 +17663,10 @@ void hdd_driver_unload(void)
 		 * periodic work hence stop it.
 		 */
 		hdd_bus_bw_compute_timer_stop(hdd_ctx);
+
+#ifdef FEATURE_WLAN_DYNAMIC_NSS
+		wlan_hdd_tput_stats_timer_deinit(hdd_ctx);
+#endif
 	}
 
 	/*
@@ -19293,6 +19450,32 @@ out:
 	osif_driver_sync_op_stop(driver_sync);
 
 	return ret;
+}
+
+void hdd_wait_for_dp_tx(void)
+{
+	int count = MAX_SSR_WAIT_ITERATIONS;
+	int r;
+
+	hdd_enter();
+
+	while (count) {
+		r = atomic_read(&dp_protect_entry_count);
+
+		if (!r)
+			break;
+
+		if (--count) {
+			hdd_err_rl("Waiting for Packet tx to complete: %d",
+				   count);
+			msleep(SSR_WAIT_SLEEP_TIME);
+		}
+	}
+
+	if (!count)
+		hdd_err("Timed-out waiting for packet tx");
+
+	hdd_exit();
 }
 
 static const struct kernel_param_ops pcie_gen_speed_ops = {

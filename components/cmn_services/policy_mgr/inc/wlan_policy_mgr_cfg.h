@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -399,6 +400,40 @@ CFG_INI_UINT("g_sta_sap_scc_on_dfs_chan", 0, 2, 2, CFG_VALUE_OR_DEFAULT, \
 
 /*
  * <ini>
+ * mi_sap_only_allow_sta_dfs_indoor_chan - Only when mac is already working
+ * in the dfs/indoor channel, sap are allowed to work in the same channel.
+ * @Min: 0
+ * @Max: 1
+ * @Default: 1
+ *
+ * One of wlan interface work on dfs channel or indoor channel,
+ * then, sap can work on this channel.
+ * If not, dfs and indoor channels cannot be used by sap.
+ *
+ * 0 - No restrictions on dfs/indoor channels.
+ * 1 - Only when mac is already working in the dfs/indoor channel,
+ * sap are allowed to work in the same channel. Note that
+ * need to enable three related configurations
+ *
+ * Related:
+ * gEnableDFSMasterCap=1
+ * g_sta_sap_scc_on_dfs_chan=2
+ * gindoor_channel_support=1
+
+ *
+ * Supported Feature: Non-DBS, DBS
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+
+#define CFG_SAP_ONLY_ALLOW_STA_DFS_INDOOR_CHAN \
+CFG_INI_UINT("mi_sap_only_allow_sta_dfs_indoor_chan", 0, 1, 1, CFG_VALUE_OR_DEFAULT, \
+	     "Do not allow go/p2p to work on dfs/indoor chan outside mac working freq")
+
+/*
+ * <ini>
  * gForce1x1Exception - force 1x1 when connecting to certain peer
  * @Min: 0
  * @Max: 2
@@ -589,6 +624,7 @@ CFG_INI_UINT("g_pcl_band_priority", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
 		CFG(CFG_ENABLE_STA_CONNECTION_IN_5GHZ)\
 		CFG(CFG_DUAL_MAC_FEATURE_DISABLE)\
 		CFG(CFG_STA_SAP_SCC_ON_DFS_CHAN)\
+		CFG(CFG_SAP_ONLY_ALLOW_STA_DFS_INDOOR_CHAN)\
 		CFG(CFG_FORCE_1X1_FEATURE)\
 		CFG(CFG_ENABLE_SAP_MANDATORY_CHAN_LIST)\
 		CFG(CFG_STA_SAP_SCC_ON_LTE_COEX_CHAN)\

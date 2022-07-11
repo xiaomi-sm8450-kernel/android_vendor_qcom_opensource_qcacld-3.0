@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -286,6 +287,14 @@ bool hdd_cm_is_vdev_connected(struct hdd_adapter *adapter);
  * Return: true if connecting, false otherwise
  */
 bool hdd_cm_is_connecting(struct hdd_adapter *adapter);
+
+/**
+ * hdd_cm_is_connected() - Function to check if vdev is connected or not
+ * @adapter: pointer to the adapter structure
+ *
+ * Return: true if connected, false otherwise
+ */
+bool hdd_cm_is_connected(struct hdd_adapter *adapter);
 
 /**
  * hdd_cm_is_disconnected() - Function to check if vdev is disconnected or not

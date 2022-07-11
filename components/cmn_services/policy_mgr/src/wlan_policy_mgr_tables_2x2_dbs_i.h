@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -51,8 +52,7 @@ pm_second_connection_pcl_dbs_2x2_table = {
 		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
 	[PM_SAP_MODE] = {PM_24G_SCC_CH_SBS_CH,
 		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
-	[PM_P2P_CLIENT_MODE] =	{ PM_24G_SCC_CH_SBS_CH,
-		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
+	[PM_P2P_CLIENT_MODE] = {PM_SCC_CH_24G, PM_SCC_CH_24G, PM_SCC_CH_24G},
 	[PM_P2P_GO_MODE] = {PM_SCC_CH_24G,
 		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
 	[PM_NAN_DISC_MODE] = {PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH,
@@ -64,8 +64,7 @@ pm_second_connection_pcl_dbs_2x2_table = {
 		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
 	[PM_SAP_MODE] = {PM_24G_SCC_CH_SBS_CH,
 		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
-	[PM_P2P_CLIENT_MODE] =	{ PM_24G_SCC_CH_SBS_CH,
-		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
+	[PM_P2P_CLIENT_MODE] =	{PM_SCC_CH_24G, PM_SCC_CH_24G, PM_SCC_CH_24G},
 	[PM_P2P_GO_MODE] = {PM_SCC_CH_24G,
 		PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH},
 	[PM_NAN_DISC_MODE] = {PM_24G_SCC_CH_SBS_CH, PM_24G_SCC_CH_SBS_CH,

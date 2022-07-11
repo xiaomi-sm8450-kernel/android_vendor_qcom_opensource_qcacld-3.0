@@ -1971,21 +1971,31 @@ cm_roam_scan_filter(struct wlan_objmgr_psoc *psoc,
 	if (command != ROAM_SCAN_OFFLOAD_STOP) {
 		switch (reason) {
 		case REASON_ROAM_SET_BLACKLIST_BSSID:
-			op_bitmap |= 0x1;
+			op_bitmap |= ROAM_FILTER_OP_BITMAP_BLACK_LIST;
 			cm_add_blacklist_ap_list(pdev, params);
 			break;
 		case REASON_ROAM_SET_SSID_ALLOWED:
-			op_bitmap |= 0x2;
+			op_bitmap |= ROAM_FILTER_OP_BITMAP_WHITE_LIST;
 			num_ssid_white_list =
 				rso_usr_cfg->num_ssid_allowed_list;
 			break;
 		case REASON_ROAM_SET_FAVORED_BSSID:
-			op_bitmap |= 0x4;
+			op_bitmap |= ROAM_FILTER_OP_BITMAP_PREFER_BSSID;
 			num_bssid_preferred_list =
 				rso_usr_cfg->num_bssid_favored;
 			break;
 		case REASON_CTX_INIT:
 			if (command == ROAM_SCAN_OFFLOAD_START) {
+				num_ssid_white_list =
+					rso_usr_cfg->num_ssid_allowed_list;
+				if (num_ssid_white_list)
+					op_bitmap |=
+					ROAM_FILTER_OP_BITMAP_WHITE_LIST;
+				cm_add_blacklist_ap_list(pdev, params);
+				if (params->num_bssid_black_list)
+					op_bitmap |=
+					ROAM_FILTER_OP_BITMAP_BLACK_LIST;
+
 				params->lca_disallow_config_present = true;
 				/*
 				 * If rssi disallow bssid list have any member
@@ -2004,15 +2014,30 @@ cm_roam_scan_filter(struct wlan_objmgr_psoc *psoc,
 			}
 			break;
 		default:
-			mlme_debug("Roam Filter need not be sent, no need to fill parameters");
-			return;
+			if (command == ROAM_SCAN_OFFLOAD_START) {
+				num_ssid_white_list =
+					rso_usr_cfg->num_ssid_allowed_list;
+				if (num_ssid_white_list)
+					op_bitmap |=
+					ROAM_FILTER_OP_BITMAP_WHITE_LIST;
+				cm_add_blacklist_ap_list(pdev, params);
+				if (params->num_bssid_black_list)
+					op_bitmap |=
+					ROAM_FILTER_OP_BITMAP_BLACK_LIST;
+			}
+			if (!op_bitmap) {
+				mlme_debug("Roam Filter need not be sent, no need to fill parameters");
+				return;
+			}
+			break;
 		}
 	} else {
 		/* In case of STOP command, reset all the variables
 		 * except for blacklist BSSID which should be retained
 		 * across connections.
 		 */
-		op_bitmap = 0x2 | 0x4;
+		op_bitmap = ROAM_FILTER_OP_BITMAP_WHITE_LIST |
+			    ROAM_FILTER_OP_BITMAP_PREFER_BSSID;
 		if (reason == REASON_ROAM_SET_SSID_ALLOWED)
 			num_ssid_white_list =
 					rso_usr_cfg->num_ssid_allowed_list;
@@ -2880,8 +2905,6 @@ cm_roam_stop_req(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 	cm_fill_stop_reason(stop_req, reason);
 	if (wlan_cm_host_roam_in_progress(psoc, vdev_id))
 		stop_req->middle_of_roaming = 1;
-	else
-		wlan_roam_reset_roam_params(psoc);
 	/*
 	 * If roam synch propagation is in progress and an user space
 	 * disconnect is requested, then there is no need to send the

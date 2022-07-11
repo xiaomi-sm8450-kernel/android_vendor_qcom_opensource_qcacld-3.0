@@ -120,7 +120,8 @@ HDD_OBJS := 	$(HDD_SRC_DIR)/wlan_hdd_assoc.o \
 		$(HDD_SRC_DIR)/wlan_hdd_trace.o \
 		$(HDD_SRC_DIR)/wlan_hdd_tx_rx.o \
 		$(HDD_SRC_DIR)/wlan_hdd_wmm.o \
-		$(HDD_SRC_DIR)/wlan_hdd_wowl.o
+		$(HDD_SRC_DIR)/wlan_hdd_wowl.o \
+		$(HDD_SRC_DIR)/wlan_hdd_dynamic_nss.o
 
 ifeq ($(CONFIG_WLAN_FEATURE_PERIODIC_STA_STATS), y)
 HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_periodic_sta_stats.o
@@ -3668,11 +3669,13 @@ cppflags-$(CONFIG_ENABLE_HAL_REG_WR_HISTORY) += -DCONFIG_ENABLE_HAL_REG_WR_HISTO
 cppflags-$(CONFIG_DP_RX_DESC_COOKIE_INVALIDATE) += -DDP_RX_DESC_COOKIE_INVALIDATE
 cppflags-$(CONFIG_MON_ENABLE_DROP_FOR_MAC) += -DMON_ENABLE_DROP_FOR_MAC
 cppflags-$(CONFIG_LITHIUM) += -DDISABLE_MON_RING_MSI_CFG
+cppflags-$(CONFIG_TX_MULTIQ_PER_AC) += -DTX_MULTIQ_PER_AC
 cppflags-$(CONFIG_PCI_LINK_STATUS_SANITY) += -DPCI_LINK_STATUS_SANITY
 cppflags-$(CONFIG_DDP_MON_RSSI_IN_DBM) += -DDP_MON_RSSI_IN_DBM
 cppflags-$(CONFIG_SYSTEM_PM_CHECK) += -DSYSTEM_PM_CHECK
 cppflags-$(CONFIG_DISABLE_EAPOL_INTRABSS_FWD) += -DDISABLE_EAPOL_INTRABSS_FWD
 cppflags-$(CONFIG_TX_AGGREGATION_SIZE_ENABLE) += -DTX_AGGREGATION_SIZE_ENABLE
+cppflags-$(CONFIG_TX_MULTI_TCL) += -DTX_MULTI_TCL
 
 # Enable Low latency
 cppflags-$(CONFIG_WLAN_FEATURE_LL_MODE) += -DWLAN_FEATURE_LL_MODE
@@ -3825,6 +3828,10 @@ cppflags-$(CONFIG_SAP_AVOID_ACS_FREQ_LIST) += -DSAP_AVOID_ACS_FREQ_LIST
 
 #Flag to enable Dynamic Voltage WDCVS (Config Voltage Mode)
 cppflags-$(CONFIG_WLAN_DYNAMIC_CVM) += -DFEATURE_WLAN_DYNAMIC_CVM
+
+ifneq ($(FACTORY_BUILD),1)
+cppflags-y += -DFEATURE_WLAN_DYNAMIC_NSS
+endif
 
 #Flag to enable get firmware state feature
 cppflags-$(CONFIG_QCACLD_FEATURE_FW_STATE) += -DFEATURE_FW_STATE

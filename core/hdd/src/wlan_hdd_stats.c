@@ -4554,11 +4554,36 @@ static void hdd_fill_rate_info(struct wlan_objmgr_psoc *psoc,
  * Return: None
  */
 static void wlan_hdd_fill_station_info(struct wlan_objmgr_psoc *psoc,
+				       struct hdd_adapter *adapter,
 				       struct station_info *sinfo,
 				       struct hdd_station_info *stainfo,
 				       struct hdd_fw_txrx_stats *stats)
 {
 	qdf_time_t curr_time, dur;
+	struct cdp_peer_stats *peer_stats;
+	QDF_STATUS status;
+
+	peer_stats = qdf_mem_malloc(sizeof(*peer_stats));
+	if (!peer_stats)
+		return;
+
+	status =
+		cdp_host_get_peer_stats(cds_get_context(QDF_MODULE_ID_SOC),
+					adapter->vdev_id,
+					stainfo->sta_mac.bytes,
+					peer_stats);
+
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("cdp_host_get_peer_stats failed. error: %u", status);
+		qdf_mem_free(peer_stats);
+		return;
+	}
+
+	stainfo->last_tx_rx_ts =
+		peer_stats->tx.last_tx_ts > peer_stats->rx.last_rx_ts ?
+		peer_stats->tx.last_tx_ts : peer_stats->rx.last_rx_ts;
+
+	qdf_mem_free(peer_stats);
 
 	curr_time = qdf_system_ticks();
 	dur = curr_time - stainfo->assoc_ts;
@@ -4862,7 +4887,8 @@ static int wlan_hdd_get_station_remote(struct wiphy *wiphy,
 	txrx_stats.rssi = stats->peer_stats_info_ext->rssi
 			+ WLAN_HDD_TGT_NOISE_FLOOR_DBM;
 	wlan_hdd_fill_rate_info(&txrx_stats, stats->peer_stats_info_ext);
-	wlan_hdd_fill_station_info(hddctx->psoc, sinfo, stainfo, &txrx_stats);
+	wlan_hdd_fill_station_info(hddctx->psoc, adapter,
+				   sinfo, stainfo, &txrx_stats);
 	wlan_cfg80211_mc_cp_stats_free_stats_event(stats);
 	hdd_put_sta_info_ref(&adapter->sta_info_list, &stainfo, true,
 			     STA_INFO_WLAN_HDD_GET_STATION_REMOTE);
@@ -6702,6 +6728,37 @@ int wlan_hdd_get_temperature(struct hdd_adapter *adapter, int *temperature)
 	return 0;
 }
 
+#ifdef TX_MULTIQ_PER_AC
+static inline
+void wlan_hdd_display_tx_multiq_stats(struct hdd_tx_rx_stats *stats)
+{
+	uint32_t total_inv_sk_and_skb_hash = 0;
+	uint32_t total_qselect_existing_skb_hash = 0;
+	uint32_t total_qselect_sk_tx_map = 0;
+	uint32_t total_qselect_skb_hash = 0;
+	uint8_t i;
+
+	for (i = 0; i < NUM_CPUS; i++) {
+		total_inv_sk_and_skb_hash +=
+					  stats->per_cpu[i].inv_sk_and_skb_hash;
+		total_qselect_existing_skb_hash +=
+				    stats->per_cpu[i].qselect_existing_skb_hash;
+		total_qselect_sk_tx_map += stats->per_cpu[i].qselect_sk_tx_map;
+		total_qselect_skb_hash +=
+					stats->per_cpu[i].qselect_skb_hash_calc;
+	}
+
+	hdd_debug("TX_MULTIQ: INV %u skb_hash %u sk_tx_map %u skb_hash_calc %u",
+		  total_inv_sk_and_skb_hash, total_qselect_existing_skb_hash,
+		  total_qselect_sk_tx_map, total_qselect_skb_hash);
+}
+#else
+static inline
+void wlan_hdd_display_tx_multiq_stats(struct hdd_tx_rx_stats *stats)
+{
+}
+#endif
+
 void wlan_hdd_display_txrx_stats(struct hdd_context *ctx)
 {
 	struct hdd_adapter *adapter = NULL, *next_adapter = NULL;
@@ -6710,6 +6767,9 @@ void wlan_hdd_display_txrx_stats(struct hdd_context *ctx)
 	uint32_t total_rx_pkt, total_rx_dropped,
 		 total_rx_delv, total_rx_refused;
 	wlan_net_dev_ref_dbgid dbgid = NET_DEV_HOLD_CACHE_STATION_STATS_CB;
+	uint32_t total_tx_pkt;
+	uint32_t total_tx_dropped;
+	uint32_t total_tx_orphaned;
 
 	hdd_for_each_adapter_dev_held_safe(ctx, adapter, next_adapter,
 					   dbgid) {
@@ -6717,35 +6777,56 @@ void wlan_hdd_display_txrx_stats(struct hdd_context *ctx)
 		total_rx_dropped = 0;
 		total_rx_delv = 0;
 		total_rx_refused = 0;
+		total_tx_pkt = 0;
+		total_tx_dropped = 0;
+		total_tx_orphaned = 0;
 		stats = &adapter->hdd_stats.tx_rx_stats;
 
-		if (adapter->vdev_id == INVAL_VDEV_ID) {
+		if (adapter->vdev_id == WLAN_INVALID_VDEV_ID) {
 			hdd_adapter_dev_put_debug(adapter, dbgid);
 			continue;
 		}
 
 		hdd_debug("adapter: %u", adapter->vdev_id);
-		for (; i < NUM_CPUS; i++) {
-			total_rx_pkt += stats->rx_packets[i];
-			total_rx_dropped += stats->rx_dropped[i];
-			total_rx_delv += stats->rx_delivered[i];
-			total_rx_refused += stats->rx_refused[i];
+		for (i = 0; i < NUM_CPUS; i++) {
+			total_rx_pkt += stats->per_cpu[i].rx_packets;
+			total_rx_dropped += stats->per_cpu[i].rx_dropped;
+			total_rx_delv += stats->per_cpu[i].rx_delivered;
+			total_rx_refused += stats->per_cpu[i].rx_refused;
+			total_tx_pkt += stats->per_cpu[i].tx_called;
+			total_tx_dropped += stats->per_cpu[i].tx_dropped;
+			total_tx_orphaned += stats->per_cpu[i].tx_orphaned;
 		}
 
 		/* dev_put has to be done here */
 		hdd_adapter_dev_put_debug(adapter, dbgid);
 
+		for (i = 0; i < NUM_CPUS; i++) {
+			if (!stats->per_cpu[i].tx_called)
+				continue;
+
+			hdd_debug("Tx CPU[%d]: called %u, dropped %u, orphaned %u",
+				  i, stats->per_cpu[i].tx_called,
+				  stats->per_cpu[i].tx_dropped,
+				  stats->per_cpu[i].tx_orphaned);
+		}
+
 		hdd_debug("TX - called %u, dropped %u orphan %u",
-			  stats->tx_called, stats->tx_dropped,
-			  stats->tx_orphaned);
+			  total_tx_pkt, total_tx_dropped,
+			  total_tx_orphaned);
+
+		wlan_hdd_display_tx_multiq_stats(stats);
 
 		for (i = 0; i < NUM_CPUS; i++) {
-			if (stats->rx_packets[i] == 0)
+			if (stats->per_cpu[i].rx_packets == 0)
 				continue;
 			hdd_debug("Rx CPU[%d]: packets %u, dropped %u, delivered %u, refused %u",
-				  i, stats->rx_packets[i], stats->rx_dropped[i],
-				  stats->rx_delivered[i], stats->rx_refused[i]);
+				  i, stats->per_cpu[i].rx_packets,
+				  stats->per_cpu[i].rx_dropped,
+				  stats->per_cpu[i].rx_delivered,
+				  stats->per_cpu[i].rx_refused);
 		}
+
 		hdd_debug("RX - packets %u, dropped %u, unsolict_arp_n_mcast_drp %u, delivered %u, refused %u GRO - agg %u drop %u non-agg %u flush_skip %u low_tput_flush %u disabled(conc %u low-tput %u)",
 			  total_rx_pkt, total_rx_dropped,
 			  qdf_atomic_read(&stats->rx_usolict_arp_n_mcast_drp),

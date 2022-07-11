@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -125,6 +126,13 @@
  * Preprocessor definitions and constants
  */
 
+static qdf_atomic_t dp_protect_entry_count;
+/* Milli seconds to delay SSR thread when an packet is getting processed */
+#define SSR_WAIT_SLEEP_TIME 200
+/* MAX iteration count to wait for dp tx to complete */
+#define MAX_SSR_WAIT_ITERATIONS 100
+#define MAX_SSR_PROTECT_LOG (16)
+
 #ifdef FEATURE_WLAN_APF
 /**
  * struct hdd_apf_context - hdd Context for apf
@@ -150,14 +158,25 @@ struct hdd_apf_context {
 };
 #endif /* FEATURE_WLAN_APF */
 
+#ifdef TX_MULTIQ_PER_AC
+#define TX_GET_QUEUE_IDX(ac, off) (((ac) * TX_QUEUES_PER_AC) + (off))
+#define TX_QUEUES_PER_AC 4
+#else
+#define TX_GET_QUEUE_IDX(ac, off) (ac)
+#define TX_QUEUES_PER_AC 1
+#endif
+
 /** Number of Tx Queues */
 #if defined(QCA_LL_TX_FLOW_CONTROL_V2) || \
 	defined(QCA_HL_NETDEV_FLOW_CONTROL) || \
 	defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
-#define NUM_TX_QUEUES 5
+/* Only one HI_PRIO queue */
+#define NUM_TX_QUEUES (4 * TX_QUEUES_PER_AC + 1)
 #else
-#define NUM_TX_QUEUES 4
+#define NUM_TX_QUEUES (4 * TX_QUEUES_PER_AC)
 #endif
+
+#define NUM_RX_QUEUES 5
 
 /*
  * Number of DPTRACE records to dump when a cfg80211 disconnect with reason
@@ -567,18 +586,30 @@ struct hdd_tx_rx_histogram {
 };
 
 struct hdd_tx_rx_stats {
-	/* start_xmit stats */
-	__u32    tx_called;
-	__u32    tx_dropped;
-	__u32    tx_orphaned;
-	__u32    tx_classified_ac[NUM_TX_QUEUES];
-	__u32    tx_dropped_ac[NUM_TX_QUEUES];
+	struct {
+		/* start_xmit stats */
+		__u32    tx_called;
+		__u32    tx_dropped;
+		__u32    tx_orphaned;
+		__u32    tx_classified_ac[WLAN_MAX_AC];
+		__u32    tx_dropped_ac[WLAN_MAX_AC];
+#ifdef TX_MULTIQ_PER_AC
+		/* Neither valid socket nor skb->hash */
+		uint32_t inv_sk_and_skb_hash;
+		/* skb->hash already calculated */
+		uint32_t qselect_existing_skb_hash;
+		/* valid tx queue id in socket */
+		uint32_t qselect_sk_tx_map;
+		/* skb->hash calculated in select queue */
+		uint32_t qselect_skb_hash_calc;
+#endif
+		/* rx stats */
+		__u32 rx_packets;
+		__u32 rx_dropped;
+		__u32 rx_delivered;
+		__u32 rx_refused;
+	} per_cpu[NUM_CPUS];
 
-	/* rx stats */
-	__u32 rx_packets[NUM_CPUS];
-	__u32 rx_dropped[NUM_CPUS];
-	__u32 rx_delivered[NUM_CPUS];
-	__u32 rx_refused[NUM_CPUS];
 	qdf_atomic_t rx_usolict_arp_n_mcast_drp;
 
 	/* rx gro */
@@ -1851,6 +1882,35 @@ struct hdd_dual_sta_policy {
 	uint8_t primary_vdev_id;
 };
 
+#if defined(WLAN_FEATURE_DP_BUS_BANDWIDTH) && defined(FEATURE_RUNTIME_PM)
+/**
+ * enum hdd_rtpm_tput_policy_state - states to track runtime_pm tput policy
+ * @RTPM_TPUT_POLICY_STATE_INVALID: invalid state
+ * @RTPM_TPUT_POLICY_STATE_REQUIRED: state indicating runtime_pm is required
+ * @RTPM_TPUT_POLICY_STATE_NOT_REQUIRE: state indicating runtime_pm is NOT
+ * required
+ */
+enum hdd_rtpm_tput_policy_state {
+	RTPM_TPUT_POLICY_STATE_INVALID,
+	RTPM_TPUT_POLICY_STATE_REQUIRED,
+	RTPM_TPUT_POLICY_STATE_NOT_REQUIRED
+};
+
+/**
+ * struct hdd_rtpm_tput_policy_context - RTPM throughput policy context
+ * @curr_state: current state of throughput policy (RTPM require or not)
+ * @wake_lock: wakelock for QDF wake_lock acquire/release APIs
+ * @rtpm_lock: lock use for QDF rutime PM prevent/allow APIs
+ * @high_tput_vote: atomic variable to keep track of voting
+ */
+struct hdd_rtpm_tput_policy_context {
+	enum hdd_rtpm_tput_policy_state curr_state;
+	qdf_wake_lock_t wake_lock;
+	qdf_runtime_lock_t rtpm_lock;
+	qdf_atomic_t high_tput_vote;
+};
+#endif
+
 /**
  * struct hdd_context - hdd shared driver and psoc/device context
  * @psoc: object manager psoc context
@@ -1866,6 +1926,7 @@ struct hdd_dual_sta_policy {
  * @country_change_work: work for updating vdev when country changes
  * @rx_aggregation: rx aggregation enable or disable state
  * @gro_force_flush: gro force flushed indication flag
+ * @force_gro_enable: force GRO enable or disable flag
  * @current_pcie_gen_speed: current pcie gen speed
  * @pm_qos_req: pm_qos request for all cpu cores
  * @qos_cpu_mask: voted cpu core mask
@@ -1969,6 +2030,9 @@ struct hdd_context {
 	uint64_t prev_tx;
 	qdf_atomic_t low_tput_gro_enable;
 	uint32_t bus_low_vote_cnt;
+#ifdef FEATURE_RUNTIME_PM
+	struct hdd_rtpm_tput_policy_context rtpm_tput_policy_ctx;
+#endif
 #endif /*WLAN_FEATURE_DP_BUS_BANDWIDTH*/
 
 	struct completion ready_to_suspend;
@@ -2208,6 +2272,7 @@ struct hdd_context {
 	struct {
 		qdf_atomic_t rx_aggregation;
 		uint8_t gro_force_flush[DP_MAX_RX_THREADS];
+		bool force_gro_enable;
 	} dp_agg_param;
 	int current_pcie_gen_speed;
 	qdf_workqueue_t *adapter_ops_wq;
@@ -5019,4 +5084,23 @@ QDF_STATUS hdd_stop_adapter_ext(struct hdd_context *hdd_ctx,
  * released.
  */
 void hdd_check_for_net_dev_ref_leak(struct hdd_adapter *adapter);
+
+/**
+ * hdd_wait_for_dp_tx: Wait for packet tx to complete
+ *
+ * This function waits for dp packet tx to complete
+ *
+ * Return: None
+ */
+void hdd_wait_for_dp_tx(void);
+
+static inline void hdd_dp_ssr_protect(void)
+{
+	qdf_atomic_inc_return(&dp_protect_entry_count);
+}
+
+static inline void hdd_dp_ssr_unprotect(void)
+{
+	qdf_atomic_dec(&dp_protect_entry_count);
+}
 #endif /* end #if !defined(WLAN_HDD_MAIN_H) */
